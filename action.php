@@ -49,7 +49,7 @@ class action_plugin_rpcpub extends DokuWiki_Action_Plugin {
      */
     function handle_wikipage_write(&$event, $param){
         global $ID;
-       #if  (!$this->getConf('enable publishing')) return; 
+        if  (!$this->getConf('enable publishing')) return; 
 
         // if an old revision is safed -> run away
         if ($event->data[3]) return true;
@@ -64,6 +64,7 @@ class action_plugin_rpcpub extends DokuWiki_Action_Plugin {
         if ($ID != $ns.(!empty($ns)?':':'').$name) {
             msg('rpcpub: not publishing wiki-page other than current page ID="'.$ID.'" <> file="'.$ns.':'.$name.'"');
             $this->_debug('rpcpub: not publishing wiki-page other than current page ID="'.$ID.'" <> file="'.$ns.':'.$name.'"');
+            # Note: this prevents publish loops, the XML-RPC does not set $ID.
             return true;
         }
 
@@ -95,16 +96,18 @@ class action_plugin_rpcpub extends DokuWiki_Action_Plugin {
         $content = rawWiki($id,'');
         #$meta = p_get_metadata($id);
 
-        //TODO: allow to rewrite, prepend namespace, etc
-        $id='robin:huhu'; // XXX set wiki-page name on target.
+        //TODO: allow to rewrite, prepend namespace, regexp replace, etc
+        $id=$this->getConf('target_ns').$id;
  
         # format a XMP-RPC message to update the page
         $req = xmlrpc_encode_request("wiki.putPage", array($id, $content, "pub", false));
 
         $errors=0;
-        # TODO: loop over servers to update {
-            $o=array('doku_host' => "localhost", 
-                     'doku_base' => "/robwiki"
+        # TODO: loop over mult. servers to update {
+            $o=array('doku_host' => $this->getConf('target_host'),
+                     'doku_base' => $this->getConf('target_path'),
+                     'http_port' => $this->getConf('target_port'),
+                     'protocol'  => $this->getConf('target_proto'),
                     );
 
             #call "curl ... &" -> fire and forget 
@@ -131,11 +134,15 @@ class action_plugin_rpcpub extends DokuWiki_Action_Plugin {
     private function dokuXmlRpc($request, $o) {/*{{{*/
         $req_authorized=false;
 
+        $this->_debug("RGX". print_r($o,true));
+
         $host=$o['doku_host'];
         $path=$o['doku_base'].'/lib/exe/xmlrpc.php';
         $port=$o['http_port'] || "80";
-        $transport= 0?'ssl://':''; // TODO
-        $proto= 0?'https://':'http://'; // TODO
+        $transport= strncasecmp($o['protocol'],"HTTPS",5)?'':'ssl://'; 
+        $proto= empty($transport)?'http://':'https://'; 
+
+        $this->_debug("RGX :: $proto$host$path");
 
         if (1 && ($oa = &plugin_load('helper', 'oauth'))){
             #  check if we have an oauth-key or other credentials -> add them
